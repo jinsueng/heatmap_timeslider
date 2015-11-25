@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+
+<html>
+
+  <head>
+
+    <meta charset="utf-8">
+
+    <title>Heatmaps using Google Fusion Table, Google Maps</title>
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css" integrity="sha512-dTfge/zgoMYpP7QbHy4gWMEGsbsdZeCXz7irItjcC3sPUFtf0kuFbDz/ixG7ArTxmDjLXDmezHubeNikyKGVyQ==" crossorigin="anonymous">
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap-theme.min.css" integrity="sha384-aUGj/X2zp5rLCbBxumKTCw2Z50WgIr1vs/PFN4praOTvYXWlVyh2UtNUU0KAUhAX" crossorigin="anonymous">
+	<link rel="stylesheet" href="//code.jquery.com/ui/1.11.4/themes/smoothness/jquery-ui.css">
+	
+	<script src="js/jquery-1.10.2.min.js"></script>
+	<script src="js/jquery-ui.js"></script>
+	<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js" integrity="sha512-K1qjQ+NcF2TYO/eI3M6v8EiNYZfA95pQumfvcVrTHtwQVDG+aHRqLi/ETn2uB+1JqwYqVG3LIvdm9lj6imS/pQ==" crossorigin="anonymous"></script>
+	<script src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false&libraries=visualization"></script>
+	
+	<script type="text/javascript" src="js/date.js"></script>
+    <script>
+
+
+var map = null;
+var heatmap = null;
+var firstData = true;
+var sliderStep = 60 * 60 * 1000;
+var bRange = false;
+var rawData = [];
+var viewData = [];
+var minDate = new Date('9999-12-31');
+var maxDate = new Date('0000-01-01');
+var interval;
+var hash ={};
+var hashSet = [];
+var filter_type='All';
+
+
+var apiKey = 'AIzaSyAMhuUnGEu_9dX2i45TJZnYBq_dZPCbwZY';
+    var tableID = '1wyIiJ0_UEjyLL8g6LF91HSoqUDgpC7S0tyqyub7s';		// walmart에 weight, 시간 데이터 추가 
+    var latitudeColumn = 'latitude';		// 설정 필요
+    var longitudeColumn = 'longitude';		// 설정 필요
+	var datetimeColumn = 'datetime';
+	var weightColumn = 'weight';
+	var typeColumn = 'type';
+	var query ;
+	
+ Date.prototype.yyyymmddhh = function() {
+   var yyyy = this.getFullYear().toString();
+   var mm = (this.getMonth()+1).toString(); // getMonth() is zero-based
+   var dd  = this.getDate().toString();
+   var hh  = this.getHours().toString();
+   return yyyy +"."+ (mm[1]?mm:"0"+mm[0]) +"."+ (dd[1]?dd:"0"+dd[0]) +" "+ (hh[1]?hh:"0"+hh[0])+ "H"; // padding
+  };
+
+function makeData(){
+	query = 'SELECT ' + latitudeColumn + ','
+                  + longitudeColumn + ','
+                  + datetimeColumn+ ','
+                  + weightColumn+ ','
+                  + typeColumn+  ' FROM '
+                  + tableID;
+                  
+    var encodedQuery = encodeURIComponent(query);
+
+      // Construct the URL
+      var url = ['https://www.googleapis.com/fusiontables/v1/query'];
+          url.push('?sql=' + encodedQuery);
+          url.push('&key=' + apiKey);
+          url.push('&callback=?');
+
+      // Send the JSONP request using jQuery
+        $.ajax({
+          url: url.join(''),
+          dataType: 'jsonp',
+          success: onDataFetched
+        });
+}
+
+function getMaxDateTime(datetime){
+	return datetime > maxDate.getTime() ? maxDate.getTime():datetime; 
+}
+
+function onDataFetched(data){
+ 	var weight_max = 0;
+ 	
+ 	
+ 	var rows = data['rows'];
+ 	
+ 	for(var i in rows){
+ 		if(rows[i][3] > weight_max) weight_max = rows[i][3];	
+ 	}
+    for (var i in rows) {
+        var lat = rows[i][0];
+        var lng = rows[i][1];
+        var dat = rows[i][2];
+        var wgt = rows[i][3];
+        var act = rows[i][4];
+		
+		var one_date = new Date(dat);
+		if(minDate > one_date) minDate = one_date;
+		if(maxDate < one_date) maxDate = one_date;
+		
+		if(!hash.hasOwnProperty(act)) {hash[act] = true; hashSet.push(act);}
+		
+        rawData.push({location:new google.maps.LatLng(lat,lng), weight:wgt/weight_max, date:new Date(dat), type:act});      
+        viewData.push({location:new google.maps.LatLng(lat,lng), weight:wgt/weight_max});     
+    }
+    
+    for(var i in hashSet){
+    	$("#action").append('<li><a href="#" data-value="'+i+'">'+hashSet[i]+'</a></li>');
+    }
+    
+	heatmap = new google.maps.visualization.HeatmapLayer({
+    	data: viewData
+  	})
+
+  	heatmap.setMap(map);
+  	
+
+    	$( "#slider" ).slider({
+      		value : minDate.getTime(),
+      		min: minDate.getTime(),
+      		max: maxDate.getTime(),
+      		step: $('input:radio[id^="opt"]:checked').val() * sliderStep ,
+      		slide: function( event, ui ) {
+       	 		changeData(new Date(ui.value), $('input:radio[id^="opt"]:checked').val(),filter_type=='All'?false:true,filter_type);
+      		}
+    	});
+    	
+    	$( "#slider_range" ).slider({
+    		range : true,
+      		values : [minDate.getTime(), getMaxDateTime(minDate.getTime() + $('input:radio[id^="opt"]:checked').val() * sliderStep * 100)],
+      		min: minDate.getTime(),
+      		max: maxDate.getTime(),
+      		step: $('input:radio[id^="opt"]:checked').val() * sliderStep ,
+      		slide: function( event, ui ) {
+       	 		changeRangeData(new Date(ui.values[0]), new Date(ui.values[1]),filter_type=='All'?false:true,filter_type);
+      		}
+    	});
+    	
+    	$( "#amount" ).text((new Date($( "#slider" ).slider( "value" ))).yyyymmddhh() );
+
+		$( "#slider" ).show();
+		$( "#slider_range" ).hide();
+  	
+  	
+  $('#play_button').on('click', function () {
+  	bRange = $('input:radio[name^="single_range"]:checked').val()==1?true:false;
+  	
+    if($('#play_button').hasClass('active')){
+    	$('#button_image').addClass("glyphicon-play");
+    	$('#button_image').removeClass("glyphicon-pause");
+    	
+    	stopPlay();
+    }
+    else{
+    	$('#button_image').removeClass("glyphicon-play");
+    	$('#button_image').addClass("glyphicon-pause");
+    	
+    	if(bRange){
+    		interval = setInterval(autoRangePlay,1000);
+    	}
+    	else{
+    		interval = setInterval(autoPlay,1000);
+    	}
+    }
+  });
+}
+
+function stopPlay(){
+	clearInterval(interval);
+	
+	$('#play_button').removeClass('active')
+    $('#button_image').addClass("glyphicon-play");
+    $('#button_image').removeClass("glyphicon-pause");
+
+}
+
+function autoPlay(){
+	var changeVal = getMaxDateTime($( "#slider" ).slider("option","value") + $('input:radio[id^="opt"]:checked').val() * sliderStep);
+    if(changeVal == maxDate.getTime()) stopPlay();
+    		
+    $( "#slider" ).slider({ 
+		value : changeVal, step : $('input:radio[id^="opt"]:checked').val() * sliderStep
+	});
+
+    changeData(new Date(changeVal), $('input:radio[id^="opt"]:checked').val(),filter_type=='All'?false:true,filter_type);
+}
+
+function autoRangePlay(){
+
+	var changeValFrom = $( "#slider_range" ).slider("option","values")[0] + $('input:radio[id^="opt"]:checked').val() * sliderStep;
+	var changeValTo = getMaxDateTime($( "#slider_range" ).slider("option","values")[1] + $('input:radio[id^="opt"]:checked').val() * sliderStep);
+	if(changeValTo == maxDate.getTime()) stopPlay();
+	
+    $( "#slider_range" ).slider({ 
+		values : [changeValFrom, changeValTo],
+		step : $('input:radio[id^="opt"]:checked').val() * sliderStep
+	});
+
+   changeRangeData(new Date(changeValFrom), new Date(changeValTo),filter_type=='All'?false:true,filter_type);
+    
+}
+
+
+function initialize() {	
+	$(document).on('change', 'input:radio[id^="opt"]', function (event) {
+		stopPlay();
+		bRange = $('input:radio[name^="single_range"]:checked').val()==1?true:false;
+		if(bRange){
+			$( "#slider_range" ).slider({ 
+				values : [minDate.getTime(), getMaxDateTime(minDate.getTime() + $('input:radio[id^="opt"]:checked').val() * sliderStep* 100)],
+				step : $('input:radio[id^="opt"]:checked').val() * sliderStep
+			});
+			changeRangeData(minDate, new Date(getMaxDateTime(minDate.getTime() + $('input:radio[id^="opt"]:checked').val() * sliderStep* 100)),filter_type=='All'?false:true,filter_type);
+		}
+		else{
+			
+			$( "#slider" ).slider({ 
+				value : minDate.getTime(), step : $('input:radio[id^="opt"]:checked').val() * sliderStep
+			});
+			changeData(minDate, $('input:radio[id^="opt"]:checked').val(),filter_type=='All'?false:true,filter_type);
+		}
+	});
+	
+	
+	$(document).on('change', 'input:radio[name^="single_range"]', function (event) {
+		stopPlay();
+		bRange = $('input:radio[name^="single_range"]:checked').val()==1?true:false;
+		if(bRange){
+			$( "#slider" ).hide();
+			$( "#slider_range" ).show();
+			$( "#slider_range" ).slider({ 
+				values : [minDate.getTime(),getMaxDateTime(minDate.getTime() + $('input:radio[id^="opt"]:checked').val() * sliderStep* 100)],
+				step : $('input:radio[id^="opt"]:checked').val() * sliderStep
+			});
+			changeRangeData(minDate, new Date(getMaxDateTime(minDate.getTime() + $('input:radio[id^="opt"]:checked').val() * sliderStep* 100)),filter_type=='All'?false:true,filter_type);
+		}
+		else{
+			$( "#slider" ).show();
+			$( "#slider_range" ).hide();
+			
+			$( "#slider" ).slider({
+      			value : minDate.getTime(),
+      			step: $('input:radio[id^="opt"]:checked').val() * sliderStep 
+    		});
+    		changeData(minDate, $('input:radio[id^="opt"]:checked').val(),filter_type=='All'?false:true,filter_type);
+		}
+	});
+
+	$('.dropdown-menu').on('click','li a',function(){
+    	filter_type = $(this).text();
+    	$('#dropdownMenu1').html(filter_type+' <span class="caret"></span>');
+    	bRange = $('input:radio[name^="single_range"]:checked').val()==1?true:false;
+    	
+    	if($(this).attr('data-value') == -1){
+    		if(bRange) changeRangeData(new Date($( "#slider_range" ).slider("option","values")[0]), new Date($( "#slider_range" ).slider("option","values")[1]),false,"");
+    		else  changeData(new Date($( "#slider" ).slider("option","value")), $('input:radio[id^="opt"]:checked').val(),false,"");
+    	}
+    	else{
+    		if(bRange) changeRangeData(new Date($( "#slider_range" ).slider("option","values")[0]), new Date($( "#slider_range" ).slider("option","values")[1]),true,filter_type);
+    		else changeData(new Date($( "#slider" ).slider("option","value")), $('input:radio[id^="opt"]:checked').val(),true,filter_type);
+    	}
+	});
+		
+  makeData();
+  
+  var mapOptions = {
+    center: new google.maps.LatLng(38.0, -97.0),
+    zoom: 4
+  };
+
+  map = new google.maps.Map(document.getElementById('map-canvas'),mapOptions);
+}
+
+function changeData(filter, step, bFilter, action){
+	$( "#amount" ).text((new Date(filter)).yyyymmddhh());
+	viewData = [];
+	bRange = false;
+	if(bRange == false)
+	{
+		var filter_end = new Date(filter.getTime());
+		if(step == 7* 24){
+			filter_end.addDays(7);
+		}
+		else if(step == 24){
+			filter_end.addDays(1);
+		}
+		else if(step == 1){
+			filter_end.addHours(1);
+		}
+	
+	    for(var i in rawData){
+    		if(bFilter){
+    			if(rawData[i].date >= filter && rawData[i].date < filter_end && rawData[i].type == action) 
+    				viewData.push(rawData[i]);
+    		}
+    		else{
+    			if(rawData[i].date >= filter && rawData[i].date < filter_end) 
+    				viewData.push(rawData[i]);
+			}
+    	}
+    	heatmap.setData(new google.maps.MVCArray(viewData));
+    }
+}
+
+function changeRangeData(from, to, bFilter, action){
+	$( "#amount" ).text((new Date(from)).yyyymmddhh() + " - " + (new Date(to)).yyyymmddhh());
+	viewData = [];
+	for(var i in rawData){
+    	if(bFilter){
+    		if(rawData[i].date >= from && rawData[i].date <= to  && rawData[i].type == action) 
+    			viewData.push(rawData[i]);
+    	}
+    	else{
+    		if(rawData[i].date >= from && rawData[i].date <= to) 
+    			viewData.push(rawData[i]);
+    	}
+    }
+    heatmap.setData(new google.maps.MVCArray(viewData));
+}
+
+function toggleHeatmap() {
+  if (firstData) {
+    //heatmap.setData(pointArray2);
+    viewData = [];
+    for(var i in rawData){
+    	if(rawData[i].date < new Date('1983-01-25')) viewData.push(rawData[i]);
+    }
+    
+    heatmap.setData(new google.maps.MVCArray(viewData));
+    firstData=false;
+  } else {
+    viewData = [];
+    for(var i in rawData){
+    	if(rawData[i].date > new Date('1983-01-25') && rawData[i].date < new Date('1984-01-25')) viewData.push(rawData[i]);
+    }
+    
+    heatmap.setData(new google.maps.MVCArray(viewData));
+    firstData=true;
+  }
+}
+
+
+
+function changeGradient() {
+
+  var gradient = [
+
+    'rgba(0, 255, 255, 0)',
+    'rgba(0, 255, 255, 1)',
+    'rgba(0, 191, 255, 1)',
+    'rgba(0, 127, 255, 1)',
+    'rgba(0, 63, 255, 1)',
+    'rgba(0, 0, 255, 1)',
+    'rgba(0, 0, 223, 1)',
+    'rgba(0, 0, 191, 1)',
+    'rgba(0, 0, 159, 1)',
+    'rgba(0, 0, 127, 1)',
+    'rgba(63, 0, 91, 1)',
+    'rgba(127, 0, 63, 1)',
+    'rgba(191, 0, 31, 1)',
+    'rgba(255, 0, 0, 1)'
+  ]
+
+  heatmap.setOptions({
+
+    gradient: heatmap.get('gradient') ? null : gradient
+
+  });
+
+}
+
+
+
+function changeRadius() {
+
+  heatmap.setOptions({radius: heatmap.get('radius') ? null : 20});
+
+}
+
+
+
+function changeOpacity() {
+
+  heatmap.setOptions({opacity: heatmap.get('opacity') ? null : 0.2});
+
+}
+
+
+
+google.maps.event.addDomListener(window, 'load', initialize);
+
+
+
+    </script>
+
+  </head>
+
+
+
+  <body>
+
+
+    <div id="panel">	
+      <!--button onclick="toggleHeatmap()">Toggle Heatmap</button-->
+      <button onclick="changeGradient()">Change gradient</button>
+      <button onclick="changeRadius()">Change radius</button>
+      <button onclick="changeOpacity()">Change opacity</button>
+    </div>
+
+    <div id="map-canvas" style="height:500px; width:100%;"></div>
+	
+	<div>
+		<div class="row">
+			<div class="col-md-2 .col-md-offset-1"><h4>Single / Range</h4></div>
+			<div class="col-md-9 ">
+				<div class="btn-group" id="single_range" data-toggle="buttons">
+  					<label class="btn btn-primary active">
+    					<input type="radio" name="single_range"  autocomplete="off" value="0" checked> Single
+  					</label>
+  					<label class="btn btn-primary">
+    					<input type="radio" name="single_range"  autocomplete="off" value="1"> Range
+  					</label>
+			</div>
+		</div>
+		</div>
+		<div class="row">
+			<div class="col-md-2 .col-md-offset-1"><h4>Slider Step</h4></div>
+			<div class="col-md-9">
+				<div class="btn-group" id="mon_day_hour" data-toggle="buttons">
+  					<label class="btn btn-primary active">
+    					<input type="radio" name="mon_day_hour" id="opt1" autocomplete="off" value ="168" checked> Week
+    				</label>
+  					<label class="btn btn-primary">
+    					<input type="radio" name="mon_day_hour" id="opt2" autocomplete="off" value ="24" > Day
+  					</label>
+  					<label class="btn btn-primary">
+    					<input type="radio" name="mon_day_hour" id="opt3" autocomplete="off" value ="1" > Hour
+  					</label>
+				</div>
+			</div>
+		</div>
+		
+		<div class="row">
+			<div class="col-md-2 .col-md-offset-1"><h4>Action</h4></div>
+			<div class="col-md-9">
+				<div class="dropdown">
+  					<button class="btn btn-primary dropdown-toggle" type="button" id="dropdownMenu1" data-toggle="dropdown" aria-haspopup="true" aria-expanded="true">
+    					All
+    					<span class="caret"></span>
+  					</button>
+  					<ul id="action" class="dropdown-menu" aria-labelledby="dropdownMenu1">
+    					<li><a href="#" data-value="-1">All</a></li>
+  					</ul>
+				</div>
+			</div>
+		</div>
+		
+		<div class="row"><p></p></div>
+		<div class="row">
+			<div class="col-md-2"><p><span id="amount" style="color:#f6931f; font-weight:bold;"></p></div>
+			<div class="col-md-8"><div id="slider"></div><div id="slider_range"></div></div>
+			<div class="col-md-1">
+				<button type="button" id="play_button" class="btn btn-primary" data-toggle="button" aria-pressed="false" autocomplete="off">
+					<span id="button_image" class="glyphicon glyphicon-play" aria-hidden="true"></span>
+				</button>
+			</div>
+		</div>
+	</div>
+	
+	
+  </body>
+
+</html>
+
