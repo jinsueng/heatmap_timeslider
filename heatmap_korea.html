@@ -18,7 +18,9 @@
 	
 	<script type="text/javascript" src="js/date.js"></script>
     <script>
-
+	
+	var apiKey = 'AIzaSyAMhuUnGEu_9dX2i45TJZnYBq_dZPCbwZY';
+    var tableID = '1NK8Wr2Ri0STqZr-5Uvvp6lSODHgrRBK6RAwhMdJO';		
 
 var map = null;
 var heatmap = null;
@@ -33,15 +35,10 @@ var interval;
 var hash ={};
 var hashSet = [];
 var filter_type='All';
+//var weight_max = 0;
+//var weight_min = 9007199254740991;
 
-
-var apiKey = 'AIzaSyAMhuUnGEu_9dX2i45TJZnYBq_dZPCbwZY';
-    var tableID = '1wyIiJ0_UEjyLL8g6LF91HSoqUDgpC7S0tyqyub7s';		// walmart에 weight, 시간 데이터 추가 
-    var latitudeColumn = 'latitude';		// 설정 필요
-    var longitudeColumn = 'longitude';		// 설정 필요
-	var datetimeColumn = 'datetime';
-	var weightColumn = 'weight';
-	var typeColumn = 'type';
+	
 	var query ;
 	
  Date.prototype.yyyymmddhh = function() {
@@ -53,11 +50,7 @@ var apiKey = 'AIzaSyAMhuUnGEu_9dX2i45TJZnYBq_dZPCbwZY';
   };
 
 function makeData(){
-	query = 'SELECT ' + latitudeColumn + ','
-                  + longitudeColumn + ','
-                  + datetimeColumn+ ','
-                  + weightColumn+ ','
-                  + typeColumn+  ' FROM '
+	query = 'SELECT * FROM '
                   + tableID;
                   
     var encodedQuery = encodeURIComponent(query);
@@ -72,7 +65,10 @@ function makeData(){
         $.ajax({
           url: url.join(''),
           dataType: 'jsonp',
-          success: onDataFetched
+          success: onDataFetched,
+          error:function(request,status,error){
+        	alert("code:"+request.status+"\n"+"message:"+request.responseText+"\n"+"error:"+error);
+       		}
         });
 }
 
@@ -80,32 +76,34 @@ function getMaxDateTime(datetime){
 	return datetime > maxDate.getTime() ? maxDate.getTime():datetime; 
 }
 
+
+
 function onDataFetched(data){
- 	var weight_max = 0;
- 	
- 	
+ 	 	
  	var rows = data['rows'];
- 	
+ 	/*
  	for(var i in rows){
- 		if(rows[i][3] > weight_max) weight_max = rows[i][3];	
+ 		if(rows[i][2] > weight_max) weight_max = rows[i][2];
+		if(rows[i][2] < weight_min) weight_min = rows[i][2];			
  	}
-    for (var i in rows) {
+ 	*/
+ 	for (var i in rows) {
         var lat = rows[i][0];
         var lng = rows[i][1];
-        var dat = rows[i][2];
-        var wgt = rows[i][3];
-        var act = rows[i][4];
-		
+        var wgt = rows[i][2];
+        var act = rows[i][3];
+        var dat = rows[i][4];
+        
 		var one_date = new Date(dat);
+		
 		if(minDate > one_date) minDate = one_date;
 		if(maxDate < one_date) maxDate = one_date;
 		
 		if(!hash.hasOwnProperty(act)) {hash[act] = true; hashSet.push(act);}
 		
-        rawData.push({location:new google.maps.LatLng(lat,lng), weight:wgt/weight_max, date:new Date(dat), type:act});      
-        viewData.push({location:new google.maps.LatLng(lat,lng), weight:wgt/weight_max});     
+        rawData.push({location:new google.maps.LatLng(lat,lng), weight:Math.log(wgt), date:new Date(dat), type:act});      
+        viewData.push({location:new google.maps.LatLng(lat,lng), weight:Math.log(wgt)});     
     }
-    
     for(var i in hashSet){
     	$("#action").append('<li><a href="#" data-value="'+i+'">'+hashSet[i]+'</a></li>');
     }
@@ -146,8 +144,8 @@ function onDataFetched(data){
   	
   $('#play_button').on('click', function () {
   	bRange = $('input:radio[name^="single_range"]:checked').val()==1?true:false;
-  	
-    if($('#play_button').hasClass('active')){
+ 
+ 	if($('#play_button').hasClass('active')){
     	$('#button_image').addClass("glyphicon-play");
     	$('#button_image').removeClass("glyphicon-pause");
     	
@@ -161,19 +159,22 @@ function onDataFetched(data){
     		interval = setInterval(autoRangePlay,1000);
     	}
     	else{
+    		
     		interval = setInterval(autoPlay,1000);
+    		
     	}
     }
   });
 }
 
 function stopPlay(){
+	//if($('#play_button').hasClass('active')) $('#play_button').removeClass("active");
+	
 	clearInterval(interval);
 	
-	$('#play_button').removeClass('active')
     $('#button_image').addClass("glyphicon-play");
     $('#button_image').removeClass("glyphicon-pause");
-
+    
 }
 
 function autoPlay(){
@@ -204,6 +205,8 @@ function autoRangePlay(){
 
 
 function initialize() {	
+
+	
 	$(document).on('change', 'input:radio[id^="opt"]', function (event) {
 		stopPlay();
 		bRange = $('input:radio[name^="single_range"]:checked').val()==1?true:false;
@@ -266,8 +269,9 @@ function initialize() {
   makeData();
   
   var mapOptions = {
-    center: new google.maps.LatLng(38.0, -97.0),
-    zoom: 4
+    center: new google.maps.LatLng(36.556335, 128.059242),
+    zoom: 7,
+    opacity : 0.8
   };
 
   map = new google.maps.Map(document.getElementById('map-canvas'),mapOptions);
@@ -320,28 +324,6 @@ function changeRangeData(from, to, bFilter, action){
     heatmap.setData(new google.maps.MVCArray(viewData));
 }
 
-function toggleHeatmap() {
-  if (firstData) {
-    //heatmap.setData(pointArray2);
-    viewData = [];
-    for(var i in rawData){
-    	if(rawData[i].date < new Date('1983-01-25')) viewData.push(rawData[i]);
-    }
-    
-    heatmap.setData(new google.maps.MVCArray(viewData));
-    firstData=false;
-  } else {
-    viewData = [];
-    for(var i in rawData){
-    	if(rawData[i].date > new Date('1983-01-25') && rawData[i].date < new Date('1984-01-25')) viewData.push(rawData[i]);
-    }
-    
-    heatmap.setData(new google.maps.MVCArray(viewData));
-    firstData=true;
-  }
-}
-
-
 
 function changeGradient() {
 
@@ -383,7 +365,7 @@ function changeRadius() {
 
 function changeOpacity() {
 
-  heatmap.setOptions({opacity: heatmap.get('opacity') ? null : 0.2});
+  heatmap.setOptions({opacity: heatmap.get('opacity') ? null : 1});
 
 }
 
@@ -413,8 +395,8 @@ google.maps.event.addDomListener(window, 'load', initialize);
 	
 	<div>
 		<div class="row">
-			<div class="col-md-2 .col-md-offset-1"><h4>Single / Range</h4></div>
-			<div class="col-md-9 ">
+			<div class="col-sm-2 col-xs-2 col-md-2 "><h4>Single/Range</h4></div>
+			<div class="col-sm-4 col-xs-4 col-md-4 ">
 				<div class="btn-group" id="single_range" data-toggle="buttons">
   					<label class="btn btn-primary active">
     					<input type="radio" name="single_range"  autocomplete="off" value="0" checked> Single
@@ -424,10 +406,9 @@ google.maps.event.addDomListener(window, 'load', initialize);
   					</label>
 			</div>
 		</div>
-		</div>
-		<div class="row">
-			<div class="col-md-2 .col-md-offset-1"><h4>Slider Step</h4></div>
-			<div class="col-md-9">
+		
+			<div class="col-sm-2 col-xs-2 col-md-2 "><h4>Slider Step</h4></div>
+			<div class="col-sm-4 col-xs-4 col-md-4">
 				<div class="btn-group" id="mon_day_hour" data-toggle="buttons">
   					<label class="btn btn-primary active">
     					<input type="radio" name="mon_day_hour" id="opt1" autocomplete="off" value ="168" checked> Week
@@ -443,8 +424,8 @@ google.maps.event.addDomListener(window, 'load', initialize);
 		</div>
 		
 		<div class="row">
-			<div class="col-md-2 .col-md-offset-1"><h4>Action</h4></div>
-			<div class="col-md-9">
+			<div class="col-sm-2 col-xs-2 col-md-2 "><h4>Type</h4></div>
+			<div class="col-sm-4 col-xs-4 col-md-4">
 				<div class="dropdown">
   					<button class="btn btn-primary dropdown-toggle" type="button" id="dropdownMenu1" data-toggle="dropdown" aria-haspopup="true" aria-expanded="true">
     					All
@@ -459,9 +440,9 @@ google.maps.event.addDomListener(window, 'load', initialize);
 		
 		<div class="row"><p></p></div>
 		<div class="row">
-			<div class="col-md-2"><p><span id="amount" style="color:#f6931f; font-weight:bold;"></p></div>
-			<div class="col-md-8"><div id="slider"></div><div id="slider_range"></div></div>
-			<div class="col-md-1">
+			<div class="col-sm-2 col-xs-2 col-md-2"><h4><span id="amount" style="color:#f6931f; font-weight:bold;"></h4></div>
+			<div class="col-sm-8 col-xs-8  col-md-8"><div id="slider"></div><div id="slider_range"></div></div>
+			<div class="col-sm-1 col-xs-1 col-md-1">
 				<button type="button" id="play_button" class="btn btn-primary" data-toggle="button" aria-pressed="false" autocomplete="off">
 					<span id="button_image" class="glyphicon glyphicon-play" aria-hidden="true"></span>
 				</button>
